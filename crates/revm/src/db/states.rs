@@ -15,7 +15,7 @@ pub mod transition_state;
 pub use account_status::AccountStatus;
 pub use bundle_account::BundleAccount;
 pub use bundle_state::BundleState;
-pub use cache::CacheState;
+pub use cache::{CacheState,CacheStateBuilder};
 pub use cache_account::CacheAccount;
 pub use changes::{StateChangeset, StateReverts};
 pub use plain_account::{PlainAccount, StorageWithOriginalValues};

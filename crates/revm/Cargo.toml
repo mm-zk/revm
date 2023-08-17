@@ -36,6 +36,7 @@ ethers-contract = { version = "2.0.3", default-features = false }
 hex = "0.4.3"
 anyhow = "1.0.75"
 criterion = "0.5"
+etk-asm = "0.3"
 
 [features]
 default = ["std", "secp256k1"]

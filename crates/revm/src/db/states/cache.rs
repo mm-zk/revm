@@ -151,3 +151,40 @@ impl CacheState {
         transitions
     }
 }
+
+/// Helper structure that allows us to tie inserting of account and storages
+/// in functional builder way.
+#[derive(Default, Clone, Debug)]
+pub struct CacheStateBuilder {
+    cache_state: CacheState,
+}
+
+impl CacheStateBuilder {
+    /// Initialize builder with cache state.
+    pub fn from(cache_state: CacheState) -> Self {
+        Self { cache_state }
+    }
+
+    /// Insert account and return builder.
+    pub fn insert_account(mut self, address: Address, info: AccountInfo) -> Self {
+        self.cache_state.insert_account(address, info);
+        self
+    }
+
+    /// Insert account with storage and return builder
+    pub fn insert_account_with_storage(
+        mut self,
+        address: Address,
+        info: AccountInfo,
+        storage: PlainStorage,
+    ) -> Self {
+        self.cache_state
+            .insert_account_with_storage(address, info, storage);
+        self
+    }
+
+    /// Destroy builder and return inner cache state.
+    pub fn build(self) -> CacheState {
+        self.cache_state
+    }
+}

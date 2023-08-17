@@ -138,3 +138,165 @@ pub trait Inspector<DB: Database> {
     /// Called when a contract has been self-destructed with funds transferred to target.
     fn selfdestruct(&mut self, _contract: Address, _target: Address) {}
 }
+
+#[cfg(test)]
+mod test {
+
+    use crate::{db::states::cache::CacheStateBuilder, StateBuilder, EVM};
+
+    use super::*;
+    use etk_asm::ingest::Ingest;
+    use revm_interpreter::primitives::{address, keccak256, AccountInfo, Bytecode, U256};
+
+    #[derive(Debug, PartialEq, Clone, Copy)]
+    enum InspectorCallType {
+        Call,
+        CallEnd,
+        Create,
+        CreateEnd,
+        Step,
+        StepEnd,
+        Log,
+        Selfdestruct,
+        Initialize,
+    }
+
+    #[derive(Debug, PartialEq, Clone, Default)]
+    struct TestInspector {
+        pub(crate) calls: Vec<InspectorCallType>,
+    }
+
+    impl<DB: Database> Inspector<DB> for TestInspector {
+        fn initialize_interp(
+            &mut self,
+            _interp: &mut Interpreter,
+            _data: &mut EVMData<'_, DB>,
+        ) -> InstructionResult {
+            assert_eq!(self.calls.pop(), Some(InspectorCallType::Initialize));
+            InstructionResult::Continue
+        }
+
+        fn step(
+            &mut self,
+            _interp: &mut Interpreter,
+            _data: &mut EVMData<'_, DB>,
+        ) -> InstructionResult {
+            assert_eq!(self.calls.pop(), Some(InspectorCallType::Step));
+            InstructionResult::Continue
+        }
+
+        fn log(
+            &mut self,
+            _evm_data: &mut EVMData<'_, DB>,
+            _address: &Address,
+            _topics: &[B256],
+            _data: &Bytes,
+        ) {
+            assert_eq!(self.calls.pop(), Some(InspectorCallType::Log));
+        }
+
+        fn step_end(
+            &mut self,
+            _interp: &mut Interpreter,
+            _data: &mut EVMData<'_, DB>,
+            _eval: InstructionResult,
+        ) -> InstructionResult {
+            assert_eq!(self.calls.pop(), Some(InspectorCallType::StepEnd));
+            InstructionResult::Continue
+        }
+
+        fn call(
+            &mut self,
+            _data: &mut EVMData<'_, DB>,
+            _inputs: &mut CallInputs,
+        ) -> (InstructionResult, Gas, Bytes) {
+            assert_eq!(self.calls.pop(), Some(InspectorCallType::Call));
+            (InstructionResult::Continue, Gas::new(0), Bytes::new())
+        }
+
+        fn call_end(
+            &mut self,
+            _data: &mut EVMData<'_, DB>,
+            _inputs: &CallInputs,
+            remaining_gas: Gas,
+            ret: InstructionResult,
+            out: Bytes,
+        ) -> (InstructionResult, Gas, Bytes) {
+            assert_eq!(self.calls.pop(), Some(InspectorCallType::CallEnd));
+            (ret, remaining_gas, out)
+        }
+
+        fn create(
+            &mut self,
+            _data: &mut EVMData<'_, DB>,
+            _inputs: &mut CreateInputs,
+        ) -> (InstructionResult, Option<Address>, Gas, Bytes) {
+            assert_eq!(self.calls.pop(), Some(InspectorCallType::Create));
+            (
+                InstructionResult::Continue,
+                None,
+                Gas::new(0),
+                Bytes::default(),
+            )
+        }
+
+        fn create_end(
+            &mut self,
+            _data: &mut EVMData<'_, DB>,
+            _inputs: &CreateInputs,
+            ret: InstructionResult,
+            address: Option<Address>,
+            remaining_gas: Gas,
+            out: Bytes,
+        ) -> (InstructionResult, Option<Address>, Gas, Bytes) {
+            assert_eq!(self.calls.pop(), Some(InspectorCallType::CreateEnd));
+            (ret, address, remaining_gas, out)
+        }
+
+        fn selfdestruct(&mut self, _contract: Address, _target: Address) {
+            assert_eq!(self.calls.pop(), Some(InspectorCallType::Selfdestruct));
+        }
+    }
+
+    fn test_contract(etk_code: &str) -> Vec<u8> {
+        let mut output = Vec::new();
+        let mut ingest = Ingest::new(&mut output);
+        ingest.ingest("./example.etk", etk_code).unwrap();
+        output
+    }
+
+    #[test]
+    fn order_of_inspector_calls() {
+        let text = r#"
+            push2 lbl
+            lbl:
+            jumpdest
+        "#;
+
+        let contract = test_contract(text);
+        println!("{:?}", contract);
+
+        let address = Address::new([0x01; 20]);
+        let info = AccountInfo {
+            balance: U256::from(0xffffff),
+            nonce: 0,
+            code_hash: keccak256(&contract),
+            code: Some(Bytecode::new_raw(contract.into())),
+        };
+
+        let state = StateBuilder::default()
+            .with_cached_prestate(
+                CacheStateBuilder::default()
+                    .insert_account(address, info)
+                    .build(),
+            )
+            .build();
+
+        let mut evm = EVM::new();
+        evm.database(state);
+
+        // TODO fill inspector
+        let test_inspector = TestInspector::default();
+        evm.inspect(test_inspector).unwrap();
+    }
+}
