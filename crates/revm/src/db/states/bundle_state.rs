@@ -263,19 +263,10 @@ impl BundleState {
     }
 
     /// Extend the state with state that is build on top of it.
-    pub fn extend(&mut self, other: Self) {
-        // Extend the state.
-        for (address, other) in other.state {
-            match self.state.entry(address) {
-                hash_map::Entry::Occupied(mut entry) => {
-                    entry.get_mut().extend(other);
-                }
-                hash_map::Entry::Vacant(entry) => {
-                    // just insert if empty
-                    entry.insert(other);
-                }
-            }
-        }
+    /// This is fully overwrite the `self` state with `other` state
+    pub fn extend_reverts_replace_state(&mut self, other: Self) {
+        // Replace the state
+        self.state = other.state;
         // Contract can be just extended, when counter is introduced we will take into account that.
         self.contracts.extend(other.contracts);
         // Reverts can be just extended
@@ -417,30 +408,49 @@ mod tests {
     }
 
     /// Test bundle two
-    fn test_bundle2() -> BundleState {
+    fn test_extended() -> BundleState {
         // block changes
         BundleState::new(
-            vec![(
-                account1(),
-                None,
-                Some(AccountInfo {
-                    nonce: 3,
-                    balance: U256::from(20),
-                    code_hash: KECCAK_EMPTY,
-                    code: None,
-                }),
-                HashMap::from([(slot(), (U256::from(0), U256::from(15)))]),
-            )],
-            vec![vec![(
-                account1(),
-                Some(Some(AccountInfo {
-                    nonce: 1,
-                    balance: U256::from(10),
-                    code_hash: KECCAK_EMPTY,
-                    code: None,
-                })),
-                vec![(slot(), U256::from(10))],
-            )]],
+            vec![
+                (
+                    account1(),
+                    None,
+                    Some(AccountInfo {
+                        nonce: 3,
+                        balance: U256::from(20),
+                        code_hash: KECCAK_EMPTY,
+                        code: None,
+                    }),
+                    HashMap::from([(slot(), (U256::from(0), U256::from(15)))]),
+                ),
+                (
+                    account2(),
+                    None,
+                    Some(AccountInfo {
+                        nonce: 1,
+                        balance: U256::from(10),
+                        code_hash: KECCAK_EMPTY,
+                        code: None,
+                    }),
+                    HashMap::from([]),
+                ),
+            ],
+            vec![
+                vec![
+                    (account1(), Some(None), vec![(slot(), U256::from(0))]),
+                    (account2(), Some(None), vec![]),
+                ],
+                vec![(
+                    account1(),
+                    Some(Some(AccountInfo {
+                        nonce: 1,
+                        balance: U256::from(10),
+                        code_hash: KECCAK_EMPTY,
+                        code: None,
+                    })),
+                    vec![(slot(), U256::from(10))],
+                )],
+            ],
             vec![],
         )
     }
@@ -448,10 +458,7 @@ mod tests {
     #[test]
     fn sanity_path() {
         let bundle1 = test_bundle1();
-        let bundle2 = test_bundle2();
-
-        let mut extended = bundle1.clone();
-        extended.extend(bundle2.clone());
+        let extended = test_extended();
 
         let mut reverted = extended.clone();
         // revert zero does nothing.
